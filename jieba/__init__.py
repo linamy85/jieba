@@ -41,9 +41,12 @@ re_eng = re.compile('[a-zA-Z0-9]', re.U)
 # \u4E00-\u9FD5a-zA-Z0-9+#&\._ : All non-space characters. Will be handled with re_han
 # \r\n|\s : whitespace characters. Will not be handled.
 re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._]+)", re.U)
+re_han_dollar = re.compile("([\u4E00-\u9FD5a-zA-Z+#&\._]+)|(\-?([0-9]+\,)*[0-9]+(\.[0-9]+)?)", re.U)
 re_skip_default = re.compile("(\r\n|\s)", re.U)
 re_han_cut_all = re.compile("([\u4E00-\u9FD5]+)", re.U)
 re_skip_cut_all = re.compile("[^a-zA-Z0-9+#\n]", re.U)
+re_cut_dollar = re.compile("(\-?([0-9]+\,)*[0-9]+(\.[0-9]+)?)", re.U)
+re_error_dollar = re.compile("([0-9]+\,)|(\.[0-9]+)")
 
 def setLogLevel(log_level):
     global logger
@@ -269,7 +272,7 @@ class Tokenizer(object):
                 for elem in buf:
                     yield elem
 
-    def cut(self, sentence, cut_all=False, HMM=True):
+    def cut(self, sentence, cut_all=False, HMM=True, cut_dollar=False):
         '''
         The main function that segments an entire sentence that contains
         Chinese characters into seperated words.
@@ -284,6 +287,9 @@ class Tokenizer(object):
         if cut_all:
             re_han = re_han_cut_all
             re_skip = re_skip_cut_all
+        elif cut_dollar:
+            re_han = re_han_dollar
+            re_skip = re_skip_default
         else:
             re_han = re_han_default
             re_skip = re_skip_default
@@ -294,10 +300,14 @@ class Tokenizer(object):
         else:
             cut_block = self.__cut_DAG_NO_HMM
         blocks = re_han.split(sentence)
+        if cut_dollar:
+            blocks = filter(lambda x: x and not re_error_dollar.fullmatch(x), blocks)
         for blk in blocks:
             if not blk:
                 continue
-            if re_han.match(blk):
+            elif cut_dollar and re_cut_dollar.fullmatch(blk):
+                yield blk
+            elif re_han.match(blk):
                 for word in cut_block(blk):
                     yield word
             else:
@@ -400,7 +410,7 @@ class Tokenizer(object):
         """
         self.check_initialized()
         word = strdecode(word)
-        freq = int(freq) if freq is not None else self.suggest_freq(word, False)
+        freq = int(freq) if freq else self.suggest_freq(word, False)
         self.FREQ[word] = freq
         self.total += freq
         if tag:
@@ -519,10 +529,6 @@ def _lcut_all(s):
 
 def _lcut(s):
     return dt._lcut(s)
-
-
-def _lcut_no_hmm(s):
-    return dt._lcut_no_hmm(s)
 
 
 def _lcut_all(s):
